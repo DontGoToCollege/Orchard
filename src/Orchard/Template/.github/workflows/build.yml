@@ -1,12 +1,14 @@
-# Builds this app on one of GitHub's Macs. Orchard starts it with a push and collects what lands in "out".
+# Builds this app on GitHub's Macs. Orchard starts it with a push and collects the results.
 name: Build
 on:
   push:
     branches: [main]
   workflow_dispatch:
 jobs:
+  # Orchard looks for this job by its name, "build", and for what it leaves in "out".
   build:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Preparing the project
@@ -27,22 +29,37 @@ jobs:
           mkdir Payload
           cp -R build/Release-iphoneos/*.app Payload/
           zip -qr out/iOS.ipa Payload
-      - name: Taking screenshots in the simulator
-        continue-on-error: true
-        run: |
-          xcodebuild -target iOS -sdk iphonesimulator -configuration Debug ONLY_ACTIVE_ARCH=NO build
-          app=$(ls -d build/Debug-iphonesimulator/*.app)
-          id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
-          for device in iPhone iPad; do
-            udid=$(xcrun simctl list devices available | grep -m1 "$device" | grep -oE '[0-9A-F-]{36}')
-            xcrun simctl bootstatus "$udid" -b
-            xcrun simctl install "$udid" "$app"
-            xcrun simctl launch "$udid" "$id"
-            sleep 10
-            xcrun simctl io "$udid" screenshot "out/$device.png"
-            xcrun simctl shutdown "$udid"
-          done
       - uses: actions/upload-artifact@v4
         with:
           name: app
           path: out
+
+  # A simulator takes minutes to start, so the pictures are taken afterwards, on two more Macs at once.
+  # The apps above never wait for them.
+  screenshots:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iPhone, iPad]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Taking the ${{ matrix.device }} screenshot
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -target iOS -sdk iphonesimulator -configuration Debug ONLY_ACTIVE_ARCH=NO build
+          app=$(ls -d build/Debug-iphonesimulator/*.app)
+          id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          udid=$(xcrun simctl list devices available | grep -m1 "${{ matrix.device }}" | grep -oE '[0-9A-F-]{36}')
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl launch "$udid" "$id"
+          sleep 10
+          xcrun simctl io "$udid" screenshot "${{ matrix.device }}.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-${{ matrix.device }}
+          path: ${{ matrix.device }}.png

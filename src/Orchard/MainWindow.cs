@@ -240,17 +240,16 @@ public sealed class MainWindow : Window
         log.Items.Clear();
         build.IsEnabled = false;
         var dir = app;
+        var building = Cloud.Version(dir);
+        string? run = null;
         try
         {
-            var built = await Task.Run(() => Cloud.Build(dir, Log,
+            run = await Task.Run(() => Cloud.Build(dir, Log,
                 question => Dispatcher.Invoke(() => MessageBox.Show(this, question, "Orchard", MessageBoxButton.YesNo) == MessageBoxResult.Yes)));
-            if (built && dir == app)
+            if (run != null && dir == app)
             {
-                var id = Regex.Match(File.ReadAllText(Path.Combine(dir, "project.yml")), @"(?m)^name:\s*(\S+)").Groups[1].Value;
-                var shot = Path.Combine(dir, "Versions", "Archive", $"{id}-{Cloud.Version(dir)}-iPhone.png");
-                if (File.Exists(shot)) Open(shot);
                 // That version is now taken, so the box moves on to the next one.
-                var v = System.Version.Parse(Cloud.Version(dir));
+                var v = System.Version.Parse(building);
                 version.Text = $"{v.Major}.{v.Minor}.{v.Build + 1}";
             }
         }
@@ -260,6 +259,15 @@ public sealed class MainWindow : Window
             build.IsEnabled = true;
             RefreshTree();
         }
+        if (run == null) return;
+        // The apps are done and the Build button is free again; the pictures arrive a few minutes later.
+        try
+        {
+            var shot = await Task.Run(() => Cloud.Screenshots(dir, run, building, Log));
+            RefreshTree();
+            if (shot != null && dir == app) Open(shot);
+        }
+        catch (Exception ex) { Log("The screenshots didn't arrive: " + ex.Message); }
     }
 
     // ---- files and tabs ----

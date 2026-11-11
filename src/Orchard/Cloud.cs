@@ -99,16 +99,23 @@ public static class Cloud
 
     public static async Task<bool> HasGitHub(string dir) => (await Run(dir, "git", "remote", "get-url", "origin")).Code == 0;
 
-    /// <summary>Commits, pushes, waits for the cloud Mac, then archives and releases what it built. False = no build came out.</summary>
-    public static async Task<bool> Build(string dir, Action<string> log, Func<string, bool> confirmPublic)
+    /// <summary>The app's one-word name, which starts every built file's name.</summary>
+    public static string Id(string dir) =>
+        Regex.Match(File.ReadAllText(Path.Combine(dir, "project.yml")), @"(?m)^name:\s*(\S+)").Groups[1].Value;
+
+    /// <summary>
+    /// Commits, pushes, waits for the cloud Mac, then archives and releases the apps it built.
+    /// Returns the cloud run's number (hand it to Screenshots), or null when no build came out.
+    /// </summary>
+    public static async Task<string?> Build(string dir, Action<string> log, Func<string, bool> confirmPublic)
     {
         var name = Path.GetFileName(dir.TrimEnd('\\', '/'));
-        var id = Regex.Match(File.ReadAllText(Path.Combine(dir, "project.yml")), @"(?m)^name:\s*(\S+)").Groups[1].Value;
+        var id = Id(dir);
         var version = Version(dir);
         if (!Regex.IsMatch(version, @"^\d+\.\d+\.\d+$"))
         {
             log($"\"{version}\" isn't a version number. Use three numbers, like 1.0.0.");
-            return false;
+            return null;
         }
 
         // A version that's already built is never built again: the archive keeps every build exactly as it was.
@@ -118,7 +125,7 @@ public static class Cloud
             || (onGitHub && (await Run(dir, "gh", "release", "view", "v" + version)).Code == 0))
         {
             log($"Version {version} is already built and kept. Raise the version number to build again.");
-            return false;
+            return null;
         }
 
         await Must(dir, "git", "add", "-A");
@@ -130,7 +137,7 @@ public static class Cloud
                                "Public pages get free cloud Mac builds.\n\nGo ahead?"))
             {
                 log("Build cancelled: nothing was put on GitHub.");
-                return false;
+                return null;
             }
             log("Making the app's GitHub page...");
             await Must(dir, "gh", "repo", "create", repo, "--public", "--source", ".", "--remote", "origin", "--push");
@@ -143,7 +150,7 @@ public static class Cloud
             {
                 log("GitHub didn't take the code. If you changed this app on another computer, open the app again to fetch those changes first.");
                 log(push.Err);
-                return false;
+                return null;
             }
         }
 
@@ -160,42 +167,46 @@ public static class Cloud
         if (run == "")
         {
             log("GitHub never started the build. Check the app's GitHub page, under Actions.");
-            return false;
+            return null;
         }
 
-        string step = "", conclusion = "";
-        while (true)
+        // Only the "build" job is waited for here. The screenshot jobs that follow it take minutes longer (see Screenshots).
+        string step = "", conclusion = "", url = "";
+        while (conclusion == "")
         {
-            var view = await Run(dir, "gh", "run", "view", run, "--json", "status,conclusion,jobs");
-            if (view.Code == 0)
+            await Task.Delay(8000);
+            var view = await Run(dir, "gh", "run", "view", run, "--json", "status,conclusion,url,jobs");
+            if (view.Code != 0) continue;
+            var json = JsonDocument.Parse(view.Out).RootElement;
+            url = json.GetProperty("url").GetString() ?? "";
+            var job = json.GetProperty("jobs").EnumerateArray().FirstOrDefault(j => j.GetProperty("name").GetString() == "build");
+            if (job.ValueKind == JsonValueKind.Object)
             {
-                var json = JsonDocument.Parse(view.Out).RootElement;
-                var now = json.GetProperty("jobs").EnumerateArray()
-                    .SelectMany(j => j.GetProperty("steps").EnumerateArray())
-                    .FirstOrDefault(s => s.GetProperty("status").GetString() == "in_progress");
+                var now = job.GetProperty("steps").EnumerateArray().FirstOrDefault(s => s.GetProperty("status").GetString() == "in_progress");
                 if (now.ValueKind == JsonValueKind.Object && now.GetProperty("name").GetString() is { } n && n != step)
                     log("Cloud Mac: " + (step = n));
-                if (json.GetProperty("status").GetString() == "completed")
-                {
-                    conclusion = json.GetProperty("conclusion").GetString() ?? "";
-                    break;
-                }
+                if (job.GetProperty("status").GetString() == "completed") conclusion = job.GetProperty("conclusion").GetString() ?? "failure";
             }
-            await Task.Delay(10000);
+            // No build job at all, yet the run is over: the workflow file itself was refused.
+            else if (json.GetProperty("status").GetString() == "completed") conclusion = "failure";
         }
 
         if (conclusion != "success")
         {
+            // What went wrong can only be read once the whole run has stopped, which is at once: the screenshot jobs are skipped.
+            await WaitForRun(dir, run);
             var failed = (await Run(dir, "gh", "run", "view", run, "--log-failed")).Out.Split('\n')
                 // Each line starts with the job, the step and a timestamp; only what the Mac said is kept.
                 .Select(l => Regex.Replace(l.TrimEnd(), @"^.*?\d{4}-\d\d-\d\dT[\d:.]+Z ", ""))
+                .Where(l => l.Trim() != "")
                 .ToList();
             var errors = failed.Where(l => l.Contains("error:")).Distinct().Take(40).ToList();
-            log("The build didn't work. " + (errors.Count > 0 ? "Double-click a line to jump to it:" : "The last thing the Mac said:"));
+            log("The build didn't work. " + (errors.Count > 0 ? "Double-click a line to jump to it:" : failed.Count > 0 ? "The last thing the Mac said:" : "The Mac left no message."));
             foreach (var l in errors.Count > 0 ? errors : failed.TakeLast(20))
                 // Paths are shown from the app's folder, not the cloud Mac's.
                 log("  " + Regex.Replace(l, @"/Users/runner/work/[^/]+/[^/]+/", ""));
-            return false;
+            log("The full story is at " + url);
+            return null;
         }
 
         log("Fetching the finished app...");
@@ -210,7 +221,7 @@ public static class Cloud
             File.Move(file, dest);
             kept.Add(dest);
             // The newest app itself also sits in the app's folder, ready to hand to someone.
-            if (!file.EndsWith(".png")) File.Copy(dest, Path.Combine(dir, $"{id}-{Path.GetFileName(file)}"), true);
+            File.Copy(dest, Path.Combine(dir, $"{id}-{Path.GetFileName(file)}"), true);
         }
         Directory.Delete(temp, true);
 
@@ -222,7 +233,39 @@ public static class Cloud
                        "such as Sideloadly or AltStore. For the Mac, unzip macOS.zip, and the first time allow the app under System Settings > Privacy & Security.",
         }).ToArray());
         log($"Done: {name} {version} is built. The files are in Versions\\Archive and on the app's GitHub Releases page.");
-        return true;
+        return run;
+    }
+
+    /// <summary>Waits for the run's screenshot jobs, keeps the pictures with that version's build and adds them to its release. Returns the iPhone picture, if any.</summary>
+    public static async Task<string?> Screenshots(string dir, string run, string version, Action<string> log)
+    {
+        log("Screenshots are being taken on two more cloud Macs (about 8 minutes). You can keep working.");
+        await WaitForRun(dir, run);
+        var temp = Path.Combine(Path.GetTempPath(), "orchard-shots-" + run);
+        if (Directory.Exists(temp)) Directory.Delete(temp, true);
+        var got = await Run(dir, "gh", "run", "download", run, "-p", "screenshot-*", "-D", temp);
+        var kept = new List<string>();
+        if (got.Code == 0)
+            foreach (var file in Directory.GetFiles(temp, "*.png", SearchOption.AllDirectories))
+            {
+                var dest = Path.Combine(dir, "Versions", "Archive", $"{Id(dir)}-{version}-{Path.GetFileName(file)}");
+                File.Move(file, dest);
+                kept.Add(dest);
+            }
+        if (Directory.Exists(temp)) Directory.Delete(temp, true);
+        if (kept.Count == 0)
+        {
+            log("No screenshots came back this time. The apps themselves are fine.");
+            return null;
+        }
+        await Must(dir, new[] { "gh", "release", "upload", "v" + version }.Concat(kept).ToArray());
+        log("The screenshots are in Versions\\Archive and on the release.");
+        return kept.Find(k => k.EndsWith("iPhone.png")) ?? kept[0];
+    }
+
+    static async Task WaitForRun(string dir, string run)
+    {
+        while ((await Run(dir, "gh", "run", "view", run, "--json", "status", "-q", ".status")).Out != "completed") await Task.Delay(10000);
     }
 
     static Task<(int Code, string Out, string Err)> Must(string dir, string exe, params string[] args) => Must(dir, new[] { exe }.Concat(args).ToArray());

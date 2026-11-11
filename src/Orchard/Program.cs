@@ -42,11 +42,16 @@ public static class Program
                 return 0;
             case "build" when args.Length >= 2:
                 var allowed = args.Contains("--publish");
-                return await Cloud.Build(Path.GetFullPath(args[1]), Console.WriteLine, _ =>
+                var dir = Path.GetFullPath(args[1]);
+                var version = Cloud.Version(dir);
+                var run = await Cloud.Build(dir, Console.WriteLine, _ =>
                 {
                     if (!allowed) Console.WriteLine("This app isn't on GitHub yet. Add --publish to let the build make its public GitHub page.");
                     return allowed;
-                }) ? 0 : 1;
+                });
+                if (run == null) return 1;
+                await Cloud.Screenshots(dir, run, version, Console.WriteLine);
+                return 0;
             default:
                 Console.Error.WriteLine("Usage: Orchard.exe [new \"App Name\" | build \"folder\" [--publish] | --selftest]");
                 return 1;
