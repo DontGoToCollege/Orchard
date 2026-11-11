@@ -1,0 +1,31 @@
+# Everything about the app is set here. The cloud build turns this file into an Xcode project (with XcodeGen).
+name: {ID}
+settings:
+  base:
+    PRODUCT_NAME: {ID}
+    PRODUCT_BUNDLE_IDENTIFIER: {BUNDLE}
+    # The app's version. Orchard's Version box edits this line.
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 1
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: "{NAME}"
+    SWIFT_VERSION: "5.0"
+targets:
+  # iPhone and iPad
+  iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [Sources]
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+  # Mac
+  macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Sources]

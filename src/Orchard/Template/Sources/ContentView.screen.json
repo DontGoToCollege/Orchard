@@ -1,0 +1,9 @@
+{
+  "Kind": "VStack",
+  "Props": { "spacing": "16", "padding": "24" },
+  "Children": [
+    { "Kind": "Image", "Props": { "symbol": "apple.logo", "size": "60" }, "Children": [] },
+    { "Kind": "Text", "Props": { "text": "{NAME}", "font": "largeTitle", "bold": "true" }, "Children": [] },
+    { "Kind": "Text", "Props": { "text": "Made on Windows with Orchard", "color": "secondary" }, "Children": [] }
+  ]
+}

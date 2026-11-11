@@ -1,0 +1,10 @@
+# Built programs go on the GitHub Releases page, not in the code history
+*.exe
+Versions/
+dist/
+
+# Build leftovers
+bin/
+obj/
+.vs/
+*.user

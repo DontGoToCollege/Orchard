@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<SyntaxDefinition name="Swift" extensions=".swift" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment" foreground="#5D6C79" />
+  <Color name="String" foreground="#C41A16" />
+  <Color name="Keyword" foreground="#9B2393" fontWeight="bold" />
+  <Color name="Type" foreground="#0B4F79" />
+  <Color name="Number" foreground="#1C00CF" />
+  <Color name="Attribute" foreground="#815F03" />
+  <RuleSet>
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+    <Span color="String" multiline="true" begin="&quot;&quot;&quot;" end="&quot;&quot;&quot;" />
+    <Span color="String">
+      <Begin>"</Begin>
+      <End>"</End>
+      <RuleSet>
+        <Span begin="\\" end="." />
+      </RuleSet>
+    </Span>
+    <Keywords color="Keyword">
+      <Word>import</Word><Word>struct</Word><Word>class</Word><Word>enum</Word><Word>protocol</Word><Word>extension</Word>
+      <Word>actor</Word><Word>func</Word><Word>var</Word><Word>let</Word><Word>init</Word><Word>deinit</Word><Word>some</Word><Word>any</Word>
+      <Word>if</Word><Word>else</Word><Word>guard</Word><Word>switch</Word><Word>case</Word><Word>default</Word><Word>for</Word><Word>in</Word>
+      <Word>while</Word><Word>repeat</Word><Word>return</Word><Word>break</Word><Word>continue</Word><Word>throw</Word><Word>throws</Word>
+      <Word>try</Word><Word>catch</Word><Word>do</Word><Word>async</Word><Word>await</Word><Word>defer</Word><Word>where</Word><Word>as</Word><Word>is</Word>
+      <Word>private</Word><Word>fileprivate</Word><Word>internal</Word><Word>public</Word><Word>open</Word><Word>static</Word><Word>final</Word>
+      <Word>mutating</Word><Word>override</Word><Word>lazy</Word><Word>weak</Word><Word>typealias</Word><Word>self</Word><Word>Self</Word>
+      <Word>super</Word><Word>nil</Word><Word>true</Word><Word>false</Word>
+    </Keywords>
+    <Rule color="Attribute">[@\#]\w+</Rule>
+    <Rule color="Type">\b[A-Z]\w*\b</Rule>
+    <Rule color="Number">\b\d+(\.\d+)?\b</Rule>
+  </RuleSet>
+</SyntaxDefinition>

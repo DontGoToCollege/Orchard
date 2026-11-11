@@ -1,0 +1,8 @@
+# Built apps go on the GitHub Releases page, not in the code history
+Versions/
+*.ipa
+/*.zip
+
+# The Xcode project is made fresh by every cloud build
+*.xcodeproj
+build/

@@ -1,0 +1,48 @@
+# Builds this app on one of GitHub's Macs. Orchard starts it with a push and collects what lands in "out".
+name: Build
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparing the project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          mkdir out
+      - name: Building the Mac app
+        run: |
+          xcodebuild -target macOS -configuration Release CODE_SIGNING_ALLOWED=NO build
+          app=$(ls -d build/Release/*.app)
+          # Signed "ad hoc" (no Apple account) so Apple-chip Macs agree to run it.
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" out/macOS.zip
+      - name: Building the iPhone and iPad app
+        run: |
+          xcodebuild -target iOS -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO build
+          mkdir Payload
+          cp -R build/Release-iphoneos/*.app Payload/
+          zip -qr out/iOS.ipa Payload
+      - name: Taking screenshots in the simulator
+        continue-on-error: true
+        run: |
+          xcodebuild -target iOS -sdk iphonesimulator -configuration Debug ONLY_ACTIVE_ARCH=NO build
+          app=$(ls -d build/Debug-iphonesimulator/*.app)
+          id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          for device in iPhone iPad; do
+            udid=$(xcrun simctl list devices available | grep -m1 "$device" | grep -oE '[0-9A-F-]{36}')
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl install "$udid" "$app"
+            xcrun simctl launch "$udid" "$id"
+            sleep 10
+            xcrun simctl io "$udid" screenshot "out/$device.png"
+            xcrun simctl shutdown "$udid"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: out
