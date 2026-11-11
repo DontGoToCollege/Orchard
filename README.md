@@ -29,6 +29,8 @@ Get `Orchard.exe` from the [Releases page](../../releases/latest) and run it. Th
 3. Press **Build on a cloud Mac**. The first build asks before putting the app's code on GitHub as a public page. The apps are ready in about two minutes; the messages at the bottom show what the Mac is doing.
 4. The finished files land in the app's `Versions\Archive` folder and on its GitHub Releases page. The screenshots take longer (Apple's simulator is slow to start), so they arrive about eight minutes later and the iPhone one opens by itself. Keep Orchard open until then, and keep working meanwhile.
 
+While a build is on its way, a yellow line above the messages shows a running clock and the latest news from the cloud Macs, so you can always tell it's still going. Sometimes GitHub's Macs are all busy and the build waits in line for a few minutes first; Orchard says so.
+
 Each successful build needs a new version number (the **Version** box moves on by itself), so every build you've ever made is kept exactly as it was.
 
 ## Getting the app onto a device
@@ -41,6 +43,7 @@ Each successful build needs a new version number (the **Version** box moves on b
 - The designer's preview is a rough picture drawn by Windows. The screenshots from each cloud build show the real thing.
 - A screen made in the designer is saved as two files: `Name.screen.json` (the design) and `Name.swift` (the code made from it). Change the design, not that Swift file, because saving the design writes the Swift file again.
 - Everything about the app (name, version, which devices, minimum iOS version) is in its `project.yml` file, which you can edit in Orchard.
+- The steps the cloud Mac follows are in the app's `.github\workflows\build.yml`. When a newer Orchard has better steps, it replaces that file at the next build. To keep changes of your own, change the file's first line.
 - Orchard also works without its window, for scripts: `Orchard.exe new "My App"` and `Orchard.exe build "folder" --publish`.
 
 ## Building Orchard itself

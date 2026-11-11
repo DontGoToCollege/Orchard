@@ -99,6 +99,40 @@ public static class Cloud
 
     public static async Task<bool> HasGitHub(string dir) => (await Run(dir, "git", "remote", "get-url", "origin")).Code == 0;
 
+    /// <summary>
+    /// Gives an app made by an older Orchard the current cloud build steps. True when the file was replaced.
+    /// A file whose first line the owner changed is theirs and is left alone.
+    /// </summary>
+    public static bool UpdateBuildSteps(string dir)
+    {
+        var asm = Assembly.GetExecutingAssembly();
+        using var reader = new StreamReader(asm.GetManifestResourceStream(asm.GetManifestResourceNames().First(r => r.EndsWith("build.yml")))!);
+        var ours = reader.ReadToEnd().Replace("\r\n", "\n");
+        int Number(string line) => Regex.Match(line, @"^# Orchard build steps (\d+)") is { Success: true } m ? int.Parse(m.Groups[1].Value) : -1;
+
+        var file = Path.Combine(dir, ".github", "workflows", "build.yml");
+        if (File.Exists(file))
+        {
+            var first = File.ReadLines(file).FirstOrDefault() ?? "";
+            // Before the steps were numbered, the file started with "# Builds this app on".
+            var theirs = first.StartsWith("# Builds this app on") ? 0 : Number(first);
+            if (theirs < 0 || theirs >= Number(ours)) return false;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, ours);
+        return true;
+    }
+
+    /// <summary>What a cloud Mac is doing right now, in the words of its build steps.</summary>
+    static string Doing(JsonElement job)
+    {
+        if (job.GetProperty("status").GetString() == "completed") return job.GetProperty("conclusion").GetString() == "success" ? "finished" : "didn't work";
+        var now = job.GetProperty("steps").EnumerateArray().FirstOrDefault(s => s.GetProperty("status").GetString() == "in_progress");
+        if (now.ValueKind == JsonValueKind.Object) return now.GetProperty("name").GetString() ?? "";
+        // Between two steps there is nothing to say; before the first, GitHub hasn't found a free Mac yet.
+        return job.GetProperty("status").GetString() == "queued" ? "waiting in line for a free Mac" : "";
+    }
+
     /// <summary>The app's one-word name, which starts every built file's name.</summary>
     public static string Id(string dir) =>
         Regex.Match(File.ReadAllText(Path.Combine(dir, "project.yml")), @"(?m)^name:\s*(\S+)").Groups[1].Value;
@@ -128,6 +162,7 @@ public static class Cloud
             return null;
         }
 
+        if (UpdateBuildSteps(dir)) log("This app was made with an older Orchard. It now has the newer build steps, which deliver the apps before the screenshots.");
         await Must(dir, "git", "add", "-A");
         await Must(dir, "git", "commit", "--allow-empty", "-m", $"Build {version}");
         if (!onGitHub)
@@ -182,10 +217,8 @@ public static class Cloud
             var job = json.GetProperty("jobs").EnumerateArray().FirstOrDefault(j => j.GetProperty("name").GetString() == "build");
             if (job.ValueKind == JsonValueKind.Object)
             {
-                var now = job.GetProperty("steps").EnumerateArray().FirstOrDefault(s => s.GetProperty("status").GetString() == "in_progress");
-                if (now.ValueKind == JsonValueKind.Object && now.GetProperty("name").GetString() is { } n && n != step)
-                    log("Cloud Mac: " + (step = n));
                 if (job.GetProperty("status").GetString() == "completed") conclusion = job.GetProperty("conclusion").GetString() ?? "failure";
+                else if (Doing(job) is var n && n != "" && n != step) log("Cloud Mac: " + (step = n));
             }
             // No build job at all, yet the run is over: the workflow file itself was refused.
             else if (json.GetProperty("status").GetString() == "completed") conclusion = "failure";
@@ -240,7 +273,19 @@ public static class Cloud
     public static async Task<string?> Screenshots(string dir, string run, string version, Action<string> log)
     {
         log("Screenshots are being taken on two more cloud Macs (about 8 minutes). You can keep working.");
-        await WaitForRun(dir, run);
+        var said = new Dictionary<string, string>();
+        for (var done = false; !done; await Task.Delay(done ? 0 : 10000))
+        {
+            var view = await Run(dir, "gh", "run", "view", run, "--json", "status,jobs");
+            if (view.Code != 0) continue;
+            var json = JsonDocument.Parse(view.Out).RootElement;
+            // The two jobs are called "screenshots (iPhone)" and "screenshots (iPad)".
+            foreach (var job in json.GetProperty("jobs").EnumerateArray())
+                if (Regex.Match(job.GetProperty("name").GetString() ?? "", @"^screenshots \((.+)\)") is { Success: true } m
+                    && Doing(job) is var now && now != "" && said.GetValueOrDefault(m.Groups[1].Value) != now)
+                    log($"{m.Groups[1].Value} screenshot: {said[m.Groups[1].Value] = now}");
+            done = json.GetProperty("status").GetString() == "completed";
+        }
         var temp = Path.Combine(Path.GetTempPath(), "orchard-shots-" + run);
         if (Directory.Exists(temp)) Directory.Delete(temp, true);
         var got = await Run(dir, "gh", "run", "download", run, "-p", "screenshot-*", "-D", temp);

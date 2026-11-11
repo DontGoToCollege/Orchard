@@ -41,6 +41,21 @@ public sealed class MainWindow : Window
     readonly TextBox version = new() { Width = 64, VerticalContentAlignment = VerticalAlignment.Center };
     readonly Button build;
 
+    // While a cloud build is on its way, a line above the messages shows a running clock, so a long step never looks frozen.
+    readonly TextBlock status = new() { Padding = new Thickness(6, 3, 6, 3), Background = Brushes.LemonChiffon, Foreground = Brushes.Black, Visibility = Visibility.Collapsed };
+    readonly System.Windows.Threading.DispatcherTimer clock = new() { Interval = TimeSpan.FromSeconds(1) };
+    int working;
+    string news = "";
+    DateTime started, newsAt;
+
+    void Working(bool on)
+    {
+        working += on ? 1 : -1;
+        if (on) started = newsAt = DateTime.Now;
+        status.Visibility = working > 0 ? Visibility.Visible : Visibility.Collapsed;
+        clock.IsEnabled = working > 0;
+    }
+
     public MainWindow()
     {
         Title = "Orchard";
@@ -94,11 +109,17 @@ public sealed class MainWindow : Window
         right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(170) });
         var across = new GridSplitter { Height = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var messages = new DockPanel();
+        DockPanel.SetDock(status, Dock.Top);
+        messages.Children.Add(status);
+        messages.Children.Add(log);
         Grid.SetRow(across, 1);
-        Grid.SetRow(log, 2);
+        Grid.SetRow(messages, 2);
         right.Children.Add(tabs);
         right.Children.Add(across);
-        right.Children.Add(log);
+        right.Children.Add(messages);
+        static string Clock(DateTime since) => (DateTime.Now - since).ToString(@"m\:ss");
+        clock.Tick += (_, _) => status.Text = $"Working: {Clock(started)} so far.  Latest news, {Clock(newsAt)} ago: {news}";
 
         var main = new Grid();
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
@@ -119,7 +140,9 @@ public sealed class MainWindow : Window
 
         CommandBindings.Add(new CommandBinding(ApplicationCommands.Save, (_, _) => Guard(SaveAll)));
         Activated += (_, _) => Guard(PickUpOutsideChanges);
-        Closing += (_, e) => e.Cancel = !MayDiscard();
+        Closing += (_, e) => e.Cancel = !MayDiscard() || (working > 0 && MessageBox.Show(this,
+            "A cloud build is still on its way. If Orchard closes now, what the Mac makes is never collected and the build has to be started again.\n\nClose anyway?",
+            "Orchard", MessageBoxButton.YesNo) != MessageBoxResult.Yes);
         Loaded += async (_, _) =>
         {
             Log("Welcome to Orchard. Start with New app, or open one you made before.");
@@ -146,6 +169,8 @@ public sealed class MainWindow : Window
     {
         log.Items.Add(line);
         log.ScrollIntoView(log.Items[^1]);
+        news = line;
+        newsAt = DateTime.Now;
     });
 
     // ---- apps ----
@@ -242,6 +267,7 @@ public sealed class MainWindow : Window
         var dir = app;
         var building = Cloud.Version(dir);
         string? run = null;
+        Working(true);
         try
         {
             run = await Task.Run(() => Cloud.Build(dir, Log,
@@ -259,15 +285,16 @@ public sealed class MainWindow : Window
             build.IsEnabled = true;
             RefreshTree();
         }
-        if (run == null) return;
         // The apps are done and the Build button is free again; the pictures arrive a few minutes later.
         try
         {
+            if (run == null) return;
             var shot = await Task.Run(() => Cloud.Screenshots(dir, run, building, Log));
             RefreshTree();
             if (shot != null && dir == app) Open(shot);
         }
         catch (Exception ex) { Log("The screenshots didn't arrive: " + ex.Message); }
+        finally { Working(false); }
     }
 
     // ---- files and tabs ----

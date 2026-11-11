@@ -102,6 +102,15 @@ public static class SelfTest
         Same("1.2.3", Cloud.Version(dir));
         Same("name: Demo\nsettings:\n  base:\n    MARKETING_VERSION: 1.2.3\n    OTHER: 1", File.ReadAllText(Path.Combine(dir, "project.yml")));
 
+        // An app made by an older Orchard gets the current build steps, once; steps the owner made their own are left alone.
+        var steps = Path.Combine(dir, ".github", "workflows", "build.yml");
+        Directory.CreateDirectory(Path.GetDirectoryName(steps)!);
+        File.WriteAllText(steps, "# Builds this app on one of GitHub's Macs.\nname: Build\n");
+        if (!Cloud.UpdateBuildSteps(dir) || !File.ReadAllText(steps).Contains("screenshots:")) throw new Exception("Old build steps weren't replaced.");
+        if (Cloud.UpdateBuildSteps(dir)) throw new Exception("Current build steps were replaced again.");
+        File.WriteAllText(steps, "# Mine\nname: Build\n");
+        if (Cloud.UpdateBuildSteps(dir)) throw new Exception("The owner's own build steps were replaced.");
+
         // The designer can draw every kind of piece, alone and inside every kind of stack, and the window can be made.
         var every = new Node { Children = Catalog.Kinds.Select(k => new Node { Kind = k.Name }).ToList() };
         foreach (var holder in every.Children.Where(c => Catalog.Def(c.Kind).Container))
